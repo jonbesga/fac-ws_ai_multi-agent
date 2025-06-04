@@ -2,7 +2,7 @@ import os
 import re
 import datetime
 from typing import Dict, Any
-import json
+
 
 def extract_code_from_response(response_text: str) -> str:
     if not response_text:
@@ -40,11 +40,6 @@ class CodebaseGenerator:
         filepath = os.path.join(self.folder_name, filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
-
-    def write_json_file(self, filename: str, content: str) -> None:
-        filepath = os.path.join(self.folder_name, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(content, f)
 
 
 class SequentialCodebase(CodebaseGenerator):

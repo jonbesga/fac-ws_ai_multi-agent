@@ -1,10 +1,11 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, Literal
+from typing import TypedDict
 from dotenv import load_dotenv
-from utils import SequentialCodebase
-from pydantic import BaseModel, Field
+from utils import SequentialCodebase, CodebaseGenerator
+import time
+from copy import deepcopy
 
 load_dotenv()
 
@@ -15,34 +16,41 @@ class CodeReviewState(TypedDict):
     review: str
     refactored_code: str
     unit_tests: str
+    codebase: CodebaseGenerator
 
 
 llm = ChatOpenAI(model="gpt-4.1-nano")
 
 coder_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a Senior Software Engineer. Write clean, well-structured Python code based on requirements."),
+    ("system", "You are a Junior Software Engineer. Write awful, insecure code based on requirements."),
     ("human", "{input}")
 ])
 
 reviewer_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a Code Reviewer. Provide constructive feedback focusing on readability, efficiency, and best practices."),
+    ("system", "You are a Senior Software Engineer Code Reviewer. Provide constructive feedback focusing on readability, efficiency, and best practices."),
     ("human", "Review this code:\n{code}")
 ])
 
 refactorer_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a Refactoring Expert. Implement the suggested improvements while maintaining functionality."),
+    ("system", "You are a Senior Software Engineer Refactoring Expert. Implement the suggested improvements focusing on security."),
     ("human",
      "Original code:\n{code}\n\nReview feedback:\n{review}\n\nRefactor accordingly:")
 ])
 
 tester_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a Test Expert. Create a set of tests to ensure any future changes to the original code wont break the expected functionality. Make sure to add the original code functions in the tests, for the time being. Use the additional feedback if provided"),
+    ("system", "You are a Test Expert. Create a set of tests to ensure any future changes to the original code wont break the expected functionality. Make sure to add the original code in the tests"),
     ("human",
-     "Original code:\n{code}\n\nFeedback: {feedback}")
+     "Original code:\n{code}\n")
 ])
 
 
-import time
+def save_state(agent_name, args):
+    codebase = args.get("codebase")
+    copy = deepcopy(args)
+    del copy["codebase"]
+
+    codebase.create_folder()
+    codebase.write_json_file(f"{agent_name}.json", copy)
 
 def time_node_execution(fn):
     agent_name = fn.__name__.split("_agent")[0]
@@ -50,6 +58,9 @@ def time_node_execution(fn):
     def wrapper(*args, **kwargs):
         print(f"🔄 Starting {agent_name}...")
         start = time.time()
+        
+        save_state(agent_name, args[0])
+
         result = fn(*args, **kwargs)
         end = time.time()
         print(f"✅ {agent_name} completed in {end - start:.2f}s")
@@ -76,9 +87,8 @@ def refactorer_agent(state: CodeReviewState) -> CodeReviewState:
 
 @time_node_execution
 def tester_agent(state: CodeReviewState) -> CodeReviewState:
-    feedback = state.get("feedback", "")
     response = llm.invoke(tester_prompt.format_messages(
-        code=state["refactored_code"], feedback=feedback))
+        code=state["refactored_code"]))
     return {"unit_tests": response.content}
 
 
@@ -97,12 +107,13 @@ builder.add_edge("tester", END)
 workflow = builder.compile()
 
 if __name__ == "__main__":
-    task = "Write a function that validates email addresses using regex"
+    task = "Write a basic Flask API"
 
     print("Running sequential workflow...")
-    result = workflow.invoke({"input": task})
+    codebase = SequentialCodebase("01_sequential_workflow_security", task)
 
-    codebase = SequentialCodebase("01_sequential_workflow", task)
+    result = workflow.invoke({"input": task, "codebase": codebase})
+
     codebase.generate(result)
 
     print("=== WORKFLOW COMPLETED ===")
